@@ -1,0 +1,33 @@
+name: WiFiShare
+options:
+  bundleIdPrefix: com.wifishare
+targets:
+  WiFiShare:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - App
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: WiFi Share
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        NSLocationWhenInUseUsageDescription: "Needed to read the connected Wi-Fi name."
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.networking.wifi-info: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wifishare.app
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: App/Bridge.h
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/../target/aarch64-apple-ios/release"
+        OTHER_LDFLAGS: ["-lwifi_share", "-liconv", "-lresolv"]
+        ENABLE_BITCODE: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""

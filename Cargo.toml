@@ -1,0 +1,20 @@
+[package]
+name = "wifi_share"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "wifi_share"
+crate-type = ["staticlib"]
+
+[dependencies]
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time"] }
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
