@@ -13,6 +13,7 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var active = 0
     @Published var linked = false
     @Published var pcName = "—"
+    @Published var error = ""
 
     let port: UInt16 = 1080
     private let lm = CLLocationManager()
@@ -38,8 +39,10 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func start() {
-        if wifi_share_start(port) == 0 { startKeepAlive() }
-        UIApplication.shared.isIdleTimerDisabled = true
+        if wifi_share_start(port) == 0 {
+            startKeepAlive()
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
         refresh()
     }
 
@@ -50,7 +53,10 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
         refresh()
     }
 
-    func toggle() { running ? stop() : start() }
+    func toggle() {
+        if wifi_share_running() != 0 { stop() } else { start() }
+        refresh()
+    }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         tick = 0
@@ -64,6 +70,9 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
         running = wifi_share_running() != 0
         active = Int(wifi_share_active())
         linked = wifi_share_linked() != 0
+        var eb = [CChar](repeating: 0, count: 256)
+        _ = wifi_share_last_error(&eb, eb.count)
+        error = running ? "" : String(cString: eb)
         var buf = [CChar](repeating: 0, count: 128)
         pcName = (wifi_share_pc_name(&buf, buf.count) > 0) ? String(cString: buf) : "—"
         if running, let p = player, !p.isPlaying { resumeAudio() }

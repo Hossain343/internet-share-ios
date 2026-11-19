@@ -14,6 +14,9 @@ struct ContentView: View {
             Divider()
             row("Proxy (SOCKS5):", model.running ? "127.0.0.1:\(model.port)" : "خاموش")
             row("اتصالات فعال:", "\(model.active)")
+            if !model.error.isEmpty {
+                Text("خطا: " + model.error).font(.footnote).foregroundColor(.red)
+            }
             Spacer()
             Button(action: { model.toggle() }) {
                 Text(model.running ? "توقف" : "شروع")
@@ -22,7 +25,9 @@ struct ContentView: View {
                     .background(model.running ? Color.red : Color.green)
                     .foregroundColor(.white)
                     .cornerRadius(12)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
         .padding(24)
     }

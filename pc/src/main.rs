@@ -20,6 +20,7 @@ impl eframe::App for App {
         let color = match s.level {
             Level::Off => egui::Color32::GRAY,
             Level::Wait => egui::Color32::from_rgb(255, 170, 0),
+            Level::Bad => egui::Color32::from_rgb(255, 90, 80),
             Level::Ok => egui::Color32::from_rgb(60, 200, 90),
         };
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -50,6 +51,24 @@ impl eframe::App for App {
                 ui.add_space(8.0);
                 ui.colored_label(egui::Color32::from_rgb(255, 120, 80), s.note.as_str());
             }
+            if !s.detail.is_empty() {
+                ui.add_space(6.0);
+                ui.small(format!("Details: {}", s.detail));
+            }
+            if s.need_install {
+                ui.add_space(10.0);
+                ui.separator();
+                ui.label("Apple USB components (needed to talk to the iPhone):");
+                ui.horizontal(|ui| {
+                    if ui.button("Install / repair (iTunes via winget)").clicked() {
+                        self.engine.install_apple();
+                    }
+                    if ui.button("Open Apple Devices (Microsoft Store)").clicked() {
+                        self.engine.open_store();
+                    }
+                });
+                ui.small("After installing, this window detects it automatically.");
+            }
             ui.add_space(14.0);
             let label = if s.on { "Turn OFF" } else { "Turn ON" };
             if ui.add_sized([ui.available_width(), 42.0], egui::Button::new(label)).clicked() {
@@ -63,7 +82,7 @@ fn main() -> eframe::Result<()> {
     let engine = Arc::new(Engine::new());
     engine.start();
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([460.0, 340.0]).with_resizable(false),
+        viewport: egui::ViewportBuilder::default().with_inner_size([520.0, 460.0]).with_resizable(false),
         ..Default::default()
     };
     let e2 = engine.clone();

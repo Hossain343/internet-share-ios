@@ -1,9 +1,9 @@
 use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::io::{copy_bidirectional_with_sizes, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
@@ -33,6 +33,9 @@ pub struct Shared {
     pub linked: AtomicBool,
     pub tun_up: AtomicBool,
     pub muxd_ok: AtomicBool,
+    /// 0 unknown, 1 service running, 2 stopped/starting, 3 not installed
+    pub apple: AtomicU8,
+    pub muxd_err: Mutex<String>,
     pub active: AtomicUsize,
     pub phone: Mutex<String>,
     pub note: Mutex<String>,
@@ -41,6 +44,7 @@ pub struct Shared {
 pub enum Level {
     Off,
     Wait,
+    Bad,
     Ok,
 }
 
@@ -53,6 +57,8 @@ pub struct Snapshot {
     pub adapter: String,
     pub active: usize,
     pub note: String,
+    pub detail: String,
+    pub need_install: bool,
 }
 
 pub struct Engine {
@@ -113,16 +119,44 @@ impl Engine {
         }
     }
 
+    /// Opens a visible console that installs iTunes (includes Apple USB service + driver) via winget.
+    pub fn install_apple(&self) {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("cmd")
+            .args([
+                "/c", "start", "Apple components", "cmd", "/k", "winget", "install", "-e", "--id", "Apple.iTunes",
+                "--accept-package-agreements", "--accept-source-agreements",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+
+    /// Opens the Apple Devices page of the Microsoft Store.
+    pub fn open_store(&self) {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", "ms-windows-store://pdp/?productid=9NP83LWLPZ9K"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let sh = &self.sh;
         let on = self.is_on();
         let dev = sh.device_id.load(Relaxed);
         let linked = sh.linked.load(Relaxed);
         let up = sh.tun_up.load(Relaxed);
+        let apple = sh.apple.load(Relaxed);
+        let muxd_ok = sh.muxd_ok.load(Relaxed);
         let (level, status) = if !on {
             (Level::Off, "Stopped")
-        } else if !sh.muxd_ok.load(Relaxed) {
-            (Level::Wait, "Apple USB service not found - install iTunes or Apple Devices")
+        } else if !muxd_ok {
+            match apple {
+                3 => (Level::Bad, "Apple USB support is NOT installed - press Install below"),
+                2 => (Level::Wait, "Apple USB service is stopped - starting it..."),
+                1 => (Level::Bad, "Apple service is running but not answering - see details"),
+                _ => (Level::Wait, "Checking Apple USB service..."),
+            }
         } else if dev == 0 {
             (Level::Wait, "Waiting for iPhone - plug in the cable, unlock it, tap Trust")
         } else if !linked {
@@ -132,6 +166,7 @@ impl Engine {
         } else {
             (Level::Ok, "Connected - internet is coming from the iPhone")
         };
+        let detail = if on && !muxd_ok { sh.muxd_err.lock().map(|e| e.clone()).unwrap_or_default() } else { String::new() };
         let phone = sh.phone.lock().map(|p| p.clone()).unwrap_or_default();
         Snapshot {
             on,
@@ -142,6 +177,8 @@ impl Engine {
             adapter: if up { format!("{ADAPTER} ({ADAPTER_IP})") } else { "not active".into() },
             active: sh.active.load(Relaxed),
             note: sh.note.lock().map(|n| n.clone()).unwrap_or_default(),
+            detail,
+            need_install: on && !linked,
         }
     }
 }
@@ -205,16 +242,63 @@ async fn bind_proxy() -> io::Result<TcpListener> {
     s.listen(1024)
 }
 
+async fn sc(args: &[&str]) -> (Option<i32>, String) {
+    match Command::new("sc")
+        .args(args)
+        .stdin(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .await
+    {
+        Ok(o) => {
+            let mut t = String::from_utf8_lossy(&o.stdout).to_string();
+            t.push_str(&String::from_utf8_lossy(&o.stderr));
+            (o.status.code(), t)
+        }
+        Err(e) => (None, e.to_string()),
+    }
+}
+
+const APPLE_SERVICE: &str = "Apple Mobile Device Service";
+
+/// Finds out why the Apple USB service is unreachable and tries to start it.
+async fn diagnose(sh: &Shared) {
+    let (code, text) = sc(&["query", APPLE_SERVICE]).await;
+    if code == Some(1060) || text.contains("1060") {
+        sh.apple.store(3, Relaxed);
+    } else if text.contains("RUNNING") {
+        sh.apple.store(1, Relaxed);
+    } else if text.contains("STOPPED") || text.contains("PAUSED") || text.contains("PENDING") {
+        sh.apple.store(2, Relaxed);
+        let _ = sc(&["config", APPLE_SERVICE, "start=", "auto"]).await;
+        let _ = sc(&["start", APPLE_SERVICE]).await;
+    } else {
+        sh.apple.store(0, Relaxed);
+    }
+}
+
 async fn device_monitor(sh: Arc<Shared>) {
+    let mut last_diag: Option<Instant> = None;
     loop {
         match muxd::usb_device().await {
             Ok(id) => {
                 sh.muxd_ok.store(true, Relaxed);
+                sh.apple.store(1, Relaxed);
                 sh.device_id.store(id.unwrap_or(0), Relaxed);
+                if let Ok(mut e) = sh.muxd_err.lock() {
+                    e.clear();
+                }
             }
-            Err(_) => {
+            Err(e) => {
                 sh.muxd_ok.store(false, Relaxed);
                 sh.device_id.store(0, Relaxed);
+                if let Ok(mut m) = sh.muxd_err.lock() {
+                    *m = e.to_string();
+                }
+                if last_diag.map_or(true, |t| t.elapsed() > Duration::from_secs(5)) {
+                    last_diag = Some(Instant::now());
+                    diagnose(&sh).await;
+                }
             }
         }
         sleep(Duration::from_millis(1500)).await;
