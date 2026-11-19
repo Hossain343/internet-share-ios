@@ -8,7 +8,7 @@ name = "wifi_share"
 crate-type = ["staticlib"]
 
 [dependencies]
-tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time"] }
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros"] }
 socket2 = { version = "0.5", features = ["all"] }
 libc = "0.2"
 
