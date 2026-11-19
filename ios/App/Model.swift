@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import NetworkExtension
 import CoreLocation
 import AVFoundation
@@ -10,6 +11,8 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var ip = "—"
     @Published var running = false
     @Published var active = 0
+    @Published var linked = false
+    @Published var pcName = "—"
 
     let port: UInt16 = 1080
     private let lm = CLLocationManager()
@@ -21,10 +24,16 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
         super.init()
         lm.delegate = self
         lm.requestWhenInUseAuthorization()
+        UIDevice.current.name.withCString { wifi_share_set_device_name($0) }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.resumeAudio()
+        }
         start()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+        RunLoop.main.add(timer!, forMode: .common)
         refresh()
     }
 
@@ -54,6 +63,10 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
         ip = addr ?? "—"
         running = wifi_share_running() != 0
         active = Int(wifi_share_active())
+        linked = wifi_share_linked() != 0
+        var buf = [CChar](repeating: 0, count: 128)
+        pcName = (wifi_share_pc_name(&buf, buf.count) > 0) ? String(cString: buf) : "—"
+        if running, let p = player, !p.isPlaying { resumeAudio() }
         if connected {
             if tick % 5 == 0 {
                 NEHotspotNetwork.fetchCurrent { [weak self] net in
@@ -66,17 +79,23 @@ final class Model: NSObject, ObservableObject, CLLocationManagerDelegate {
         tick += 1
     }
 
-    // Silent looping audio keeps the app alive in the background.
+    // Silent looping audio keeps the app (and the proxy) alive with the screen off.
     private func startKeepAlive() {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
             try AVAudioSession.sharedInstance().setActive(true)
             let p = try AVAudioPlayer(data: Model.silentWav())
             p.numberOfLoops = -1
-            p.volume = 0
+            p.volume = 1.0
             p.play()
             player = p
         } catch {}
+    }
+
+    private func resumeAudio() {
+        guard running else { return }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        if let p = player { p.play() } else { startKeepAlive() }
     }
 
     static func silentWav() -> Data {

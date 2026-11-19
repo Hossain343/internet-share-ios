@@ -1,4 +1,6 @@
 target/
+pc/target/
+pc/assets/
 ios/build/
 ios/WiFiShare.xcodeproj/
 *.ipa

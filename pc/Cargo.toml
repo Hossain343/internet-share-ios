@@ -1,0 +1,23 @@
+[package]
+name = "wifishare-pc"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "WiFiSharePC"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "process", "sync", "macros"] }
+socket2 = { version = "0.5", features = ["all"] }
+eframe = "=0.29.1"
+
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

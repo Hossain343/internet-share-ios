@@ -1,0 +1,39 @@
+name: Build Windows Receiver
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pc
+
+      - name: Download tun2socks and Wintun
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force pc/assets | Out-Null
+          Invoke-WebRequest "https://github.com/xjasonlyu/tun2socks/releases/latest/download/tun2socks-windows-amd64.zip" -OutFile t2s.zip
+          Expand-Archive t2s.zip -DestinationPath t2s -Force
+          $exe = Get-ChildItem t2s -Filter *.exe -Recurse | Select-Object -First 1
+          Copy-Item $exe.FullName pc/assets/tun2socks.exe
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip
+          Expand-Archive wintun.zip -DestinationPath wintun -Force
+          Copy-Item wintun/wintun/bin/amd64/wintun.dll pc/assets/wintun.dll
+          Get-ChildItem pc/assets
+
+      - name: Build receiver
+        working-directory: pc
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WiFiSharePC-windows
+          path: pc/target/release/WiFiSharePC.exe
