@@ -9,7 +9,7 @@ name = "WiFiSharePC"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros"] }
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "process", "sync", "macros"] }
 socket2 = { version = "0.5", features = ["all"] }
 eframe = "=0.29.1"
 
